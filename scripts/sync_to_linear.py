@@ -4,15 +4,18 @@ import argparse
 from pathlib import Path
 import yaml
 import requests
+from dotenv import load_dotenv
 
 # --- Configuration ---
+load_dotenv()
 TERNA_DIR = Path(os.getenv("TERNA_ROOT", "terna"))
 PROJECTS_DIR = TERNA_DIR / "projects"
-LINEAR_API_KEY = "lin_api_7VMIgCVRHQBSCUFuPrnWopOgwddnDpmWWpCXd8EB"
+LINEAR_API_KEY = os.getenv("LINEAR_API_KEY")
 LINEAR_API_URL = "https://api.linear.app/graphql"
 
 if not LINEAR_API_KEY:
-    print("❌ ERROR: LINEAR_API_KEY has not been hardcoded.")
+    print("❌ ERROR: LINEAR_API_KEY environment variable not set.")
+    print("Please create a .env file in the root of the project and add LINEAR_API_KEY=<your_key>")
     exit(1)
 
 # --- Helper Functions ---

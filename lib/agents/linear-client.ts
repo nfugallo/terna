@@ -44,6 +44,7 @@ export interface LinearProject {
   progress: number;
   targetDate?: string;
   url: string;
+  team?: LinearTeam;
 }
 
 export interface LinearIssue {
@@ -157,6 +158,8 @@ export class LinearAPI {
 
       // Get the created project
       const project = await projectPayload.project;
+      const teams = await project.teams();
+      const firstTeam = teams.nodes[0];
 
       // Create milestones if provided
       const createdMilestones: LinearMilestone[] = [];
@@ -180,7 +183,7 @@ export class LinearAPI {
         }
       }
 
-      const projectResult = {
+      const projectResult: LinearProject = {
         id: project.id,
         name: project.name,
         description: project.description || '',
@@ -189,6 +192,7 @@ export class LinearAPI {
         progress: project.progress,
         targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
         url: `https://linear.app/simpl/project/${project.id}`,
+        team: firstTeam ? { id: firstTeam.id, name: firstTeam.name, key: firstTeam.key } : undefined
       };
 
       // Sync to Terna folder
@@ -215,6 +219,9 @@ export class LinearAPI {
       const project = await linearClient.project(projectId);
       if (!project) return null;
 
+      const teams = await project.teams();
+      const firstTeam = teams.nodes[0];
+
       return {
         id: project.id,
         name: project.name,
@@ -224,6 +231,7 @@ export class LinearAPI {
         progress: project.progress,
         targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
         url: `https://linear.app/simpl/project/${project.id}`,
+        team: firstTeam ? { id: firstTeam.id, name: firstTeam.name, key: firstTeam.key } : undefined
       };
     } catch (error) {
       console.error('Error fetching project:', error);
@@ -240,15 +248,20 @@ export class LinearAPI {
       const projects = await linearClient.projects();
       console.log('Projects fetched successfully, count:', projects.nodes.length);
       
-      return projects.nodes.map(project => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        content: project.content,
-        state: project.state,
-        progress: project.progress,
-        targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
-        url: `https://linear.app/simpl/project/${project.id}`,
+      return Promise.all(projects.nodes.map(async project => {
+        const teams = await project.teams();
+        const firstTeam = teams.nodes[0];
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          content: project.content,
+          state: project.state,
+          progress: project.progress,
+          targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
+          url: `https://linear.app/simpl/project/${project.id}`,
+          team: firstTeam ? { id: firstTeam.id, name: firstTeam.name, key: firstTeam.key } : undefined
+        };
       }));
     } catch (error) {
       console.error('Error fetching all projects:', error);
@@ -269,15 +282,20 @@ export class LinearAPI {
         project.name.toLowerCase().includes(query.toLowerCase())
       );
 
-      return filteredProjects.map(project => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        content: project.content,
-        state: project.state,
-        progress: project.progress,
-        targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
-        url: `https://linear.app/simpl/project/${project.id}`,
+      return Promise.all(filteredProjects.map(async project => {
+        const teams = await project.teams();
+        const firstTeam = teams.nodes[0];
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          content: project.content,
+          state: project.state,
+          progress: project.progress,
+          targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
+          url: `https://linear.app/simpl/project/${project.id}`,
+          team: firstTeam ? { id: firstTeam.id, name: firstTeam.name, key: firstTeam.key } : undefined
+        };
       }));
     } catch (error) {
       console.error('Error searching projects:', error);

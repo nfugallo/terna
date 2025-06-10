@@ -97,12 +97,18 @@ export class GitHubTernaSync {
             }
 
             // Process issues for this project
-            const issuesCreated = await this.syncProjectIssues(
-              projectFolder.path,
-              linearProject.id,
-              linearProject.team.id
-            );
-            result.issuesCreated += issuesCreated;
+            if (linearProject.team?.id) {
+              const issuesCreated = await this.syncProjectIssues(
+                projectFolder.path,
+                linearProject.id,
+                linearProject.team.id
+              );
+              result.issuesCreated += issuesCreated;
+            } else {
+              const errorMsg = `Could not determine team for project ${linearProject.name}. Cannot sync issues.`;
+              console.error(errorMsg);
+              result.errors.push(errorMsg);
+            }
           }
         } catch (error) {
           const errorMsg = `Error processing project ${projectFolder.name}: ${error}`;
