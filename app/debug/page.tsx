@@ -21,7 +21,7 @@ export default function DebugPage() {
 
   const handleDebugLog = (log: { type: string; content: unknown; timestamp: Date }) => {
     const newLog: DebugLog = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random()}`,
       ...log,
     };
     setDebugLogs((prev) => [...prev, newLog]);
@@ -60,12 +60,12 @@ export default function DebugPage() {
   const toolLogs = debugLogs.filter(log => log.type === 'tool_call' || log.type === 'tool_result');
 
   return (
-    <main className="h-screen bg-white dark:bg-black">
+    <main className="h-screen bg-white dark:bg-black overflow-hidden">
       <div className="h-full flex">
         {/* Main Content */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Header */}
-          <div className="p-6 border-b border-black/10 dark:border-white/10 flex items-center justify-between backdrop-blur-sm">
+          <div className="p-6 border-b border-black/10 dark:border-white/10 flex items-center justify-between backdrop-blur-sm flex-shrink-0">
             <div>
               <h1 className="text-2xl font-light tracking-wide text-black dark:text-white">Terna Debug</h1>
               <p className="text-sm opacity-60 mt-1 text-black dark:text-white">Development & Debugging Interface</p>
@@ -74,14 +74,14 @@ export default function DebugPage() {
           </div>
           
           {/* Chat Interface */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden min-h-0">
             <ChatInterface showDebugPanel={true} onDebugLog={handleDebugLog} />
           </div>
         </div>
 
         {/* Debug Panel */}
-        <div className="w-96 border-l border-black/10 dark:border-white/10 flex flex-col bg-white/50 dark:bg-black/50 backdrop-blur-sm">
-          <div className="p-4 border-b border-black/10 dark:border-white/10">
+        <div className="w-96 border-l border-black/10 dark:border-white/10 flex flex-col bg-white/50 dark:bg-black/50 backdrop-blur-sm min-h-0">
+          <div className="p-4 border-b border-black/10 dark:border-white/10 flex-shrink-0">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-medium text-black dark:text-white">Debug Panel</h2>
               <div className="flex gap-2">
@@ -116,8 +116,8 @@ export default function DebugPage() {
             </div>
           </div>
 
-          <Tabs value={selectedTab} onValueChange={setSelectedTab} className="flex-1 flex flex-col">
-            <TabsList className="w-full rounded-none border-b border-black/10 dark:border-white/10 bg-transparent">
+          <Tabs value={selectedTab} onValueChange={setSelectedTab} className="flex-1 flex flex-col min-h-0">
+            <TabsList className="w-full rounded-none border-b border-black/10 dark:border-white/10 bg-transparent flex-shrink-0">
               <TabsTrigger value="logs" className="flex-1 data-[state=active]:bg-black/10 dark:data-[state=active]:bg-white/10">
                 Logs ({debugLogs.length})
               </TabsTrigger>
@@ -129,7 +129,7 @@ export default function DebugPage() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="logs" className="flex-1 m-0">
+            <TabsContent value="logs" className="flex-1 m-0 min-h-0">
               <ScrollArea className="h-full minimal-scrollbar">
                 <div className="p-4 space-y-2">
                   {debugLogs.map((log) => (
@@ -149,7 +149,7 @@ export default function DebugPage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="thinking" className="flex-1 m-0">
+            <TabsContent value="thinking" className="flex-1 m-0 min-h-0">
               <ScrollArea className="h-full minimal-scrollbar">
                 <div className="p-4 space-y-2">
                   {thinkingLogs.length === 0 ? (
@@ -175,7 +175,7 @@ export default function DebugPage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="tools" className="flex-1 m-0">
+            <TabsContent value="tools" className="flex-1 m-0 min-h-0">
               <ScrollArea className="h-full minimal-scrollbar">
                 <div className="p-4 space-y-2">
                   {toolLogs.length === 0 ? (

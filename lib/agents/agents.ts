@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { commitToFolder } from './github-tool';
 import { getLinearToolsForAgent } from './linear-tools';
+import { linearProjectTools, linearIssueTools } from './linear-tools';
 
 // Read system prompts from markdown files
 async function loadSystemPrompt(filename: string): Promise<string> {
@@ -46,20 +47,6 @@ const createIssueTool = tool({
   },
 });
 
-const searchTool = tool({
-  name: 'search_resources',
-  description: 'Search for resources, documentation, or best practices',
-  parameters: z.object({
-    query: z.string(),
-    type: z.enum(['documentation', 'tutorial', 'best-practice', 'example']),
-  }),
-  needsApproval: false, // No approval needed for searches
-  execute: async ({ query, type }) => {
-    // Placeholder implementation
-    return `Found 5 ${type} resources for "${query}"`;
-  },
-});
-
 // Create agents
 export async function createProjectPlannerAgent() {
   const instructions = await loadSystemPrompt('project-planner.md');
@@ -68,7 +55,7 @@ export async function createProjectPlannerAgent() {
     name: 'Project Planner',
     instructions,
     model: 'gpt-4.1',
-    tools: [createProjectTool, searchTool],
+    tools: [createProjectTool],
   });
 }
 
@@ -79,7 +66,7 @@ export async function createIssuePlannerAgent() {
     name: 'Issue Planner',
     instructions,
     model: 'gpt-4.1',
-    tools: [createIssueTool, searchTool],
+    tools: [createIssueTool],
   });
 }
 
@@ -104,31 +91,29 @@ If the user hasn't connected their GitHub account yet, inform them they need to 
     name: 'Code Writer',
     instructions,
     model: 'gpt-4.1',
-    tools: [commitToFolder, searchTool],
+    tools: [commitToFolder],
   });
 }
 
 // Linear-specific agents
 export async function createLinearProjectPlannerAgent() {
   const instructions = await loadSystemPrompt('project-planner.md');
-  const linearTools = getLinearToolsForAgent('project_planner');
   
   return new Agent({
     name: 'Linear Project Planner',
-    instructions: instructions + '\n\nYou have access to Linear tools to create and manage projects in Linear. Always use these tools when working with Linear projects.',
+    instructions,
     model: 'gpt-4.1',
-    tools: linearTools,
+    tools: Object.values(linearProjectTools),
   });
 }
 
 export async function createLinearIssuePlannerAgent() {
   const instructions = await loadSystemPrompt('issue-planner.md');
-  const linearTools = getLinearToolsForAgent('issue_planner');
   
   return new Agent({
     name: 'Linear Issue Planner',
-    instructions: instructions + '\n\nYou have access to Linear tools to create and manage issues in Linear. Always use these tools when working with Linear issues.',
+    instructions,
     model: 'gpt-4.1',
-    tools: linearTools,
+    tools: Object.values(linearIssueTools),
   });
 } 

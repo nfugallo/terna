@@ -1,4 +1,5 @@
 import { LinearClient } from '@linear/sdk';
+import { ternaSync } from './terna-sync';
 
 // Lazy initialization of the Linear client
 let _linearClient: LinearClient | null = null;
@@ -6,30 +7,27 @@ let _linearClient: LinearClient | null = null;
 function getLinearClient(): LinearClient {
   if (!_linearClient) {
     const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
+    console.log('LINEAR_API_KEY exists:', !!LINEAR_API_KEY);
+    console.log('LINEAR_API_KEY length:', LINEAR_API_KEY?.length || 0);
+    
     if (!LINEAR_API_KEY) {
       throw new Error('LINEAR_API_KEY environment variable is not set');
     }
-    _linearClient = new LinearClient({
-      apiKey: LINEAR_API_KEY,
-    });
+    
+    try {
+      _linearClient = new LinearClient({
+        apiKey: LINEAR_API_KEY,
+      });
+      console.log('Linear client created successfully');
+    } catch (error) {
+      console.error('Error creating Linear client:', error);
+      throw error;
+    }
   }
   return _linearClient;
 }
 
-export const linearClient = {
-  get teams() { return getLinearClient().teams; },
-  get projects() { return getLinearClient().projects; },
-  get issues() { return getLinearClient().issues; },
-  get project() { return getLinearClient().project.bind(getLinearClient()); },
-  get createProject() { return getLinearClient().createProject.bind(getLinearClient()); },
-  get createProjectMilestone() { return getLinearClient().createProjectMilestone.bind(getLinearClient()); },
-  get issue() { return getLinearClient().issue.bind(getLinearClient()); },
-  get createIssue() { return getLinearClient().createIssue.bind(getLinearClient()); },
-  get team() { return getLinearClient().team.bind(getLinearClient()); },
-  get updateProject() { return getLinearClient().updateProject.bind(getLinearClient()); },
-  get updateIssue() { return getLinearClient().updateIssue.bind(getLinearClient()); },
-  get viewer() { return getLinearClient().viewer; },
-};
+export const linearClient = getLinearClient();
 
 export interface LinearTeam {
   id: string;
@@ -161,17 +159,28 @@ export class LinearAPI {
       const project = await projectPayload.project;
 
       // Create milestones if provided
+      const createdMilestones: LinearMilestone[] = [];
       if (params.milestones && params.milestones.length > 0) {
         for (const milestone of params.milestones) {
-          await linearClient.createProjectMilestone({
+          const milestonePayload = await linearClient.createProjectMilestone({
             projectId: project.id,
             name: milestone.name,
             description: milestone.definitionOfDone,
           });
+          
+          if (milestonePayload.success && milestonePayload.projectMilestone) {
+            const createdMilestone = await milestonePayload.projectMilestone;
+            createdMilestones.push({
+              id: createdMilestone.id,
+              name: createdMilestone.name,
+              description: createdMilestone.description,
+              targetDate: createdMilestone.targetDate ? (typeof createdMilestone.targetDate === 'string' ? createdMilestone.targetDate : createdMilestone.targetDate.toISOString()) : undefined,
+            });
+          }
         }
       }
 
-      return {
+      const projectResult = {
         id: project.id,
         name: project.name,
         description: project.description || '',
@@ -181,6 +190,17 @@ export class LinearAPI {
         targetDate: project.targetDate?.toISOString(),
         url: `https://linear.app/simpl/project/${project.id}`,
       };
+
+      // Sync to Terna folder
+      try {
+        await ternaSync.syncProject(projectResult, createdMilestones);
+        console.log('Project synced to Terna folder');
+      } catch (error) {
+        console.error('Error syncing project to Terna:', error);
+        // Don't fail the Linear creation if Terna sync fails
+      }
+
+      return projectResult;
     } catch (error) {
       console.error('Error creating project:', error);
       throw error;
@@ -216,7 +236,10 @@ export class LinearAPI {
    */
   static async getAllProjects(): Promise<LinearProject[]> {
     try {
+      console.log('Attempting to fetch projects...');
       const projects = await linearClient.projects();
+      console.log('Projects fetched successfully, count:', projects.nodes.length);
+      
       return projects.nodes.map(project => ({
         id: project.id,
         name: project.name,
@@ -229,6 +252,9 @@ export class LinearAPI {
       }));
     } catch (error) {
       console.error('Error fetching all projects:', error);
+      console.error('Error type:', typeof error);
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown error');
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
@@ -425,7 +451,7 @@ export class LinearAPI {
       const assignee = await issue.assignee;
       const labels = await issue.labels();
 
-      return {
+      const issueResult = {
         id: issue.id,
         identifier: issue.identifier,
         title: issue.title,
@@ -452,6 +478,34 @@ export class LinearAPI {
         },
         url: `https://linear.app/simpl/issue/${issue.identifier}`,
       };
+
+      // Sync to Terna folder if it's part of a project
+      if (params.projectId) {
+        try {
+          // Get the project to find the folder name
+          const project = await this.getProject(params.projectId);
+          if (project) {
+            const projectFolderName = ternaSync.getProjectFolderName(project.name);
+            
+            // If it's a sub-issue, get the parent issue folder name
+            let parentIssueFolder: string | undefined;
+            if (params.parentId) {
+              const parentIssue = await this.getIssue(params.parentId);
+              if (parentIssue) {
+                parentIssueFolder = `${parentIssue.identifier.toLowerCase()}-${ternaSync.getProjectFolderName(parentIssue.title)}`;
+              }
+            }
+            
+            await ternaSync.syncIssue(issueResult, projectFolderName, parentIssueFolder);
+            console.log('Issue synced to Terna folder');
+          }
+        } catch (error) {
+          console.error('Error syncing issue to Terna:', error);
+          // Don't fail the Linear creation if Terna sync fails
+        }
+      }
+
+      return issueResult;
     } catch (error) {
       console.error('Error creating issue:', error);
       throw error;

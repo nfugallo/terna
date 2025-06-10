@@ -2,6 +2,15 @@ import NextAuth from "next-auth";
 import GithubProvider from "next-auth/providers/github";
 import { NextAuthOptions } from "next-auth";
 
+// Ensure NEXTAUTH_SECRET is available
+if (!process.env.NEXTAUTH_SECRET) {
+  throw new Error(
+    'NEXTAUTH_SECRET environment variable is not set. ' +
+    'Please set NEXTAUTH_SECRET in your environment variables. ' +
+    'Generate one with: openssl rand -base64 32'
+  );
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GithubProvider({

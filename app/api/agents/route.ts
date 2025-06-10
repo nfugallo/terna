@@ -51,16 +51,14 @@ async function selectAgent(message: string) {
   }
   
   // Default to project planner
-  return await createProjectPlannerAgent();
+  return await createLinearProjectPlannerAgent();
 }
 
 export async function POST(request: NextRequest) {
-  console.log('API Route: Received request');
-  
   try {
     // Check if API key is set
     if (!process.env.OPENAI_API_KEY) {
-      console.error('API Route: No OpenAI API key found');
+      console.error('No OpenAI API key found');
       return new Response(JSON.stringify({ 
         error: 'OpenAI API key not configured',
         details: 'Please set OPENAI_API_KEY in your .env.local file. Run "node setup-env.js" to create the file.'
@@ -72,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     // Check if API key has correct format
     if (!process.env.OPENAI_API_KEY.startsWith('sk-')) {
-      console.error('API Route: Invalid API key format');
+      console.error('Invalid API key format');
       return new Response(JSON.stringify({ 
         error: 'Invalid API key format',
         details: 'Your API key should start with "sk-". You may have used an organization ID instead. Get your API key from https://platform.openai.com/api-keys'
@@ -83,26 +81,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    console.log('API Route: Request body:', body);
-    
     const { message, state: serializedState, approvals, githubToken, selectedAgent } = body;
     
-    // Select appropriate agent based on selectedAgent parameter or message content
-    console.log('API Route: Selecting agent...');
+    // Select appropriate agent
     let agent;
     
     if (serializedState) {
       // If we have state, use the same agent type that was used before
-      agent = await createProjectPlannerAgent();
+      agent = await createLinearProjectPlannerAgent();
     } else if (selectedAgent) {
       // Use the explicitly selected agent
-      console.log('API Route: Using selected agent:', selectedAgent);
       switch (selectedAgent) {
         case 'project-planner':
-          agent = await createProjectPlannerAgent();
+          agent = await createLinearProjectPlannerAgent();
           break;
         case 'issue-planner':
-          agent = await createIssuePlannerAgent();
+          agent = await createLinearIssuePlannerAgent();
           break;
         case 'linear-project-planner':
           agent = await createLinearProjectPlannerAgent();
@@ -111,15 +105,12 @@ export async function POST(request: NextRequest) {
           agent = await createLinearIssuePlannerAgent();
           break;
         default:
-          console.log('API Route: Unknown selected agent, falling back to project planner');
-          agent = await createProjectPlannerAgent();
+          agent = await createLinearProjectPlannerAgent();
       }
     } else {
       // Fall back to automatic selection based on message content
       agent = await selectAgent(message);
     }
-    
-    console.log('API Route: Agent selected:', agent.name);
     
     // Create context with GitHub token if available
     const context = githubToken ? { github_token: githubToken } : undefined;
@@ -127,7 +118,6 @@ export async function POST(request: NextRequest) {
     // Handle state restoration and approvals if provided
     let runInput: string | Awaited<ReturnType<typeof RunState.fromString>> = message;
     if (serializedState) {
-      console.log('API Route: Restoring state...');
       const state = await RunState.fromString(agent, serializedState);
       
       // Apply approvals/rejections if provided
@@ -145,18 +135,15 @@ export async function POST(request: NextRequest) {
     }
     
     // Run the agent with streaming and context
-    console.log('API Route: Running agent with input:', runInput);
     const result = await run(agent, runInput, { 
       stream: true,
       context 
     });
-    console.log('API Route: Agent run started');
     
     // Create a readable stream for the response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
-        console.log('API Route: Stream started');
         try {
           // Send initial agent info
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
@@ -165,22 +152,11 @@ export async function POST(request: NextRequest) {
           })}\n\n`));
 
           // Stream events and text together
-          let eventCount = 0;
           for await (const event of result) {
-            eventCount++;
-            console.log(`API Route: Event ${eventCount}:`, event.type);
-            
-            // Send raw events for debugging
+            // Send raw events for debugging (filtered)
             if (event.type === 'raw_model_stream_event') {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-                type: 'debug_event', 
-                eventType: event.type,
-                data: event.data 
-              })}\n\n`));
-              
               // Check if this event contains text delta
               if (event.data?.type === 'output_text_delta' && event.data?.delta) {
-                console.log('API Route: Text delta:', event.data.delta);
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                   type: 'text', 
                   content: event.data.delta 
@@ -208,10 +184,8 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          console.log('API Route: Waiting for completion...');
           // Wait for completion
           await result.completed;
-          console.log('API Route: Run completed');
           
           // Send final result with any interruptions
           const finalData = {
@@ -222,13 +196,11 @@ export async function POST(request: NextRequest) {
             finalAgent: agent.name,
           };
           
-          console.log('API Route: Sending final data:', finalData);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(finalData)}\n\n`));
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
-          console.log('API Route: Stream closed');
         } catch (error) {
-          console.error('API Route: Streaming error:', error);
+          console.error('Streaming error:', error);
           controller.error(error);
         }
       },
@@ -242,9 +214,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error('API Route: Agent error:', error);
+    console.error('Agent error:', error);
     const errorObj = error as Error & { code?: string; status?: number };
-    console.error('API Route: Error stack:', errorObj.stack);
     
     // Handle specific OpenAI API errors
     if (errorObj.code === 'invalid_api_key') {

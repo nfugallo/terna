@@ -89,7 +89,6 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
   const handleStreamResponse = async (response: Response) => {
     // Check if response is JSON (error response)
     const contentType = response.headers.get('content-type');
-    console.log('Response content-type:', contentType);
     
     if (contentType && contentType.includes('application/json')) {
       const errorData = await response.json();
@@ -113,20 +112,15 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
       return;
     }
 
-    console.log('Starting to read stream...');
-    let chunkCount = 0;
     let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
-        console.log('Stream complete');
         break;
       }
 
       const chunk = decoder.decode(value, { stream: true });
-      chunkCount++;
-      console.log(`Chunk ${chunkCount}:`, chunk);
       
       // Add chunk to buffer
       buffer += chunk;
@@ -142,13 +136,11 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
           if (data === '[DONE]') {
-            console.log('Received [DONE] signal');
             continue;
           }
 
           try {
             const parsed = JSON.parse(data);
-            console.log('Parsed event:', parsed.type, parsed);
 
             // Handle different event types
             if (parsed.type === 'agent_info') {
@@ -160,12 +152,6 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
                   timestamp: new Date(),
                 });
               }
-            } else if (parsed.type === 'debug_event' && onDebugLog) {
-              onDebugLog({
-                type: 'thinking',
-                content: parsed.data,
-                timestamp: new Date(),
-              });
             } else if (parsed.type === 'tool_call' && onDebugLog) {
               onDebugLog({
                 type: 'tool_call',
@@ -248,8 +234,6 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    console.log('Sending message:', input);
-
     const newMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -274,7 +258,6 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
     }
 
     try {
-      console.log('Fetching from /api/agents...');
       const response = await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -284,9 +267,6 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
           selectedAgent,
         }),
       });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -315,10 +295,10 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
       <div
         className={`flex-1 flex flex-col transition-all duration-300 ${
           showContent ? "mr-96" : ""
-        }`}
+        } min-h-0`}
       >
         {/* Agent Selection and GitHub Integration */}
-        <div className="flex justify-between items-center p-4">
+        <div className="flex justify-between items-center p-4 flex-shrink-0">
           <div className="flex gap-2">
             <Badge
               variant={selectedAgent === "project-planner" ? "default" : "outline"}
@@ -348,81 +328,83 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 px-4 minimal-scrollbar">
-          <div className="max-w-3xl mx-auto space-y-4 pb-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
+        <div className="flex-1 px-4 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full minimal-scrollbar">
+            <div className="max-w-3xl mx-auto space-y-4 pb-4">
+              {messages.map((message) => (
                 <div
-                  className={`p-4 max-w-[80%] rounded-lg backdrop-blur-md ${
-                    message.role === "user"
-                      ? "bg-black/80 text-white dark:bg-white/80 dark:text-black"
-                      : "bg-white/80 text-black dark:bg-black/80 dark:text-white"
+                  key={message.id}
+                  className={`flex ${
+                    message.role === "user" ? "justify-end" : "justify-start"
                   }`}
                 >
-                  {message.agent && message.role === "assistant" && (
-                    <div className="text-xs opacity-70 mb-1">{message.agent}</div>
-                  )}
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  <span className="text-xs opacity-50 mt-2 block">
-                    {message.timestamp.toLocaleTimeString()}
-                  </span>
+                  <div
+                    className={`p-4 max-w-[80%] rounded-lg backdrop-blur-md ${
+                      message.role === "user"
+                        ? "bg-black/80 text-white dark:bg-white/80 dark:text-black"
+                        : "bg-white/80 text-black dark:bg-black/80 dark:text-white"
+                    }`}
+                  >
+                    {message.agent && message.role === "assistant" && (
+                      <div className="text-xs opacity-70 mb-1">{message.agent}</div>
+                    )}
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    <span className="text-xs opacity-50 mt-2 block">
+                      {message.timestamp.toLocaleTimeString()}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
-            
-            {approvalRequest && (
-              <div className="bg-white/80 dark:bg-black/80 backdrop-blur-md border border-black/20 dark:border-white/20 rounded-lg p-4">
-                <h3 className="font-semibold mb-2">Approval Required</h3>
-                {approvalRequest.interruptions.map((interruption, index) => (
-                  <div key={index} className="mb-3">
-                    <p className="text-sm">
-                      <span className="font-medium">{interruption.agent.name}</span> wants to use{' '}
-                      <span className="font-mono bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.name}</span>
-                    </p>
-                    <p className="text-xs opacity-70 mt-1">
-                      Arguments: <code className="bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.arguments}</code>
-                    </p>
-                    <div className="mt-2 space-x-2">
-                      <button
-                        onClick={() => handleApproval([{ interruption, approved: true }])}
-                        className="px-3 py-1 bg-black text-white dark:bg-white dark:text-black rounded text-sm hover:opacity-80 transition-opacity"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleApproval([{ interruption, approved: false }])}
-                        className="px-3 py-1 bg-white text-black dark:bg-black dark:text-white border border-black dark:border-white rounded text-sm hover:opacity-80 transition-opacity"
-                      >
-                        Reject
-                      </button>
+              ))}
+              
+              {approvalRequest && (
+                <div className="bg-white/80 dark:bg-black/80 backdrop-blur-md border border-black/20 dark:border-white/20 rounded-lg p-4">
+                  <h3 className="font-semibold mb-2">Approval Required</h3>
+                  {approvalRequest.interruptions.map((interruption, index) => (
+                    <div key={index} className="mb-3">
+                      <p className="text-sm">
+                        <span className="font-medium">{interruption.agent.name}</span> wants to use{' '}
+                        <span className="font-mono bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.name}</span>
+                      </p>
+                      <p className="text-xs opacity-70 mt-1">
+                        Arguments: <code className="bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.arguments}</code>
+                      </p>
+                      <div className="mt-2 space-x-2">
+                        <button
+                          onClick={() => handleApproval([{ interruption, approved: true }])}
+                          className="px-3 py-1 bg-black text-white dark:bg-white dark:text-black rounded text-sm hover:opacity-80 transition-opacity"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleApproval([{ interruption, approved: false }])}
+                          className="px-3 py-1 bg-white text-black dark:bg-black dark:text-white border border-black dark:border-white rounded text-sm hover:opacity-80 transition-opacity"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="p-4 rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md">
+                    <div className="flex space-x-2">
+                      <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-100" />
+                      <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-200" />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-            
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="p-4 rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md">
-                  <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-100" />
-                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-200" />
-                  </div>
                 </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </ScrollArea>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          </ScrollArea>
+        </div>
 
         {/* Input Area */}
-        <div className="p-4 border-t border-black/10 dark:border-white/10">
+        <div className="p-4 border-t border-black/10 dark:border-white/10 flex-shrink-0">
           <div className="max-w-3xl mx-auto flex gap-2">
             <Textarea
               value={input}
@@ -467,19 +449,21 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
       {/* Content Panel */}
       {showContent && (
         <div className="absolute right-0 top-0 h-full w-96 p-4">
-          <div className="h-full p-6 overflow-hidden rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md">
-            <ScrollArea className="h-full minimal-scrollbar">
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <h3 className="text-lg font-medium mb-4 text-black dark:text-white">Task Breakdown</h3>
-                <div className="space-y-4 text-sm text-black/80 dark:text-white/80">
-                  {contentText || (
-                    <p className="italic opacity-50">
-                      Task breakdown will appear here as you discuss with the AI...
-                    </p>
-                  )}
+          <div className="h-full p-6 overflow-hidden rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md flex flex-col">
+            <h3 className="text-lg font-medium mb-4 text-black dark:text-white flex-shrink-0">Task Breakdown</h3>
+            <div className="flex-1 min-h-0">
+              <ScrollArea className="h-full minimal-scrollbar">
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <div className="space-y-4 text-sm text-black/80 dark:text-white/80">
+                    {contentText || (
+                      <p className="italic opacity-50">
+                        Task breakdown will appear here as you discuss with the AI...
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </ScrollArea>
+              </ScrollArea>
+            </div>
           </div>
         </div>
       )}
