@@ -197,10 +197,12 @@ export class LinearAPI {
 
       // Sync to Terna folder
       try {
+        console.log('🔄 Starting Terna sync for project:', projectResult.name);
+        console.log('📁 Environment check - NODE_ENV:', process.env.NODE_ENV, 'VERCEL_ENV:', process.env.VERCEL_ENV);
         await ternaSync.syncProject(projectResult, createdMilestones);
-        console.log('Project synced to Terna folder');
+        console.log('✅ Project synced to Terna folder successfully');
       } catch (error) {
-        console.error('Error syncing project to Terna:', error);
+        console.error('❌ Error syncing project to Terna:', error);
         // Don't fail the Linear creation if Terna sync fails
       }
 
@@ -500,6 +502,8 @@ export class LinearAPI {
       // Sync to Terna folder if it's part of a project
       if (params.projectId) {
         try {
+          console.log('🔄 Starting Terna sync for issue:', issueResult.identifier, '-', issueResult.title);
+          console.log('📁 Environment check - NODE_ENV:', process.env.NODE_ENV, 'VERCEL_ENV:', process.env.VERCEL_ENV);
           // Get the project to find the folder name
           const project = await this.getProject(params.projectId);
           if (project) {
@@ -515,10 +519,10 @@ export class LinearAPI {
             }
             
             await ternaSync.syncIssue(issueResult, projectFolderName, parentIssueFolder);
-            console.log('Issue synced to Terna folder');
+            console.log('✅ Issue synced to Terna folder successfully');
           }
         } catch (error) {
-          console.error('Error syncing issue to Terna:', error);
+          console.error('❌ Error syncing issue to Terna:', error);
           // Don't fail the Linear creation if Terna sync fails
         }
       }

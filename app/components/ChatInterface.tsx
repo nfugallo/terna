@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronRight, ChevronLeft, Send } from "lucide-react";
 import { GitHubIntegration } from "./GitHubIntegration";
 import { useSession } from "next-auth/react";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
   id: string;
@@ -15,6 +17,11 @@ interface Message {
   content: string;
   timestamp: Date;
   agent?: string;
+}
+
+interface AgentInputItem {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
 }
 
 interface Interruption {
@@ -26,6 +33,53 @@ interface ApprovalRequest {
   interruptions: Interruption[];
   state: string;
 }
+
+// Helper function to format Project Draft JSON to Markdown
+const formatProjectDraftToMarkdown = (data: any): string => {
+  let md = `### ${data.name}\n\n`;
+  if (data.targetQuarter) md += `**Target:** ${data.targetQuarter}\n\n`;
+  if (data.description) md += `> ${data.description}\n\n`;
+
+  if (data.milestones && data.milestones.length > 0) {
+    md += `**Milestones:**\n`;
+    md += data.milestones.map((m: any) => `- **${m.name}**: ${m.definitionOfDone}`).join('\n');
+    md += '\n\n';
+  }
+
+  if (data.content) {
+    md += '---\n\n';
+    md += data.content;
+  }
+
+  return md;
+};
+
+// Helper function to format Issue Bundle JSON to Markdown
+const formatIssueBundleToMarkdown = (data: any): string => {
+  let md = '';
+  if (data.issues && data.issues.length > 0) {
+    data.issues.forEach((issue: any) => {
+      md += `### ${issue.title}\n\n`;
+      if (issue.estimate) md += `**Estimate:** ${issue.estimate}\n`;
+
+      if (issue.labels) {
+        md += `**Labels:** ${Object.entries(issue.labels).map(([key, value]) => `\`${key}: ${value}\``).join(' ')}\n\n`;
+      }
+      
+      if (issue.description) {
+        md += '---\n\n';
+        md += issue.description + '\n\n';
+      }
+
+      if (issue.subIssues && issue.subIssues.length > 0) {
+        md += `**Sub-issues:**\n`;
+        md += issue.subIssues.map((s: any) => `- **${s.title}** (${s.estimate || 'N/A'})`).join('\n');
+        md += '\n\n';
+      }
+    });
+  }
+  return md;
+};
 
 interface ChatInterfaceProps {
   showDebugPanel?: boolean;
@@ -40,6 +94,7 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
   const [contentText, setContentText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [history, setHistory] = useState<AgentInputItem[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { data: session } = useSession();
 
@@ -49,7 +104,7 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, approvalRequest]);
 
   const prettyPrintArgs = (args: string) => {
     try {
@@ -211,11 +266,43 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
                 setContentText(currentMessage);
               }
             } else if (parsed.type === 'complete') {
+              const finalMessage = parsed.finalOutput || currentMessage;
+
+              // Check for proposals in the final message
+              const jsonRegex = /```json\s*([\s\S]*?)\s*```/;
+              const match = finalMessage.match(jsonRegex);
+
+              if (match && match[1]) {
+                  try {
+                      const jsonData = JSON.parse(match[1]);
+                      let markdownContent = '';
+
+                      // Heuristic to check if it's a PROJECT DRAFT
+                      if (jsonData.operation && jsonData.name && jsonData.milestones) {
+                          markdownContent = formatProjectDraftToMarkdown(jsonData);
+                      }
+                      // Heuristic to check if it's an ISSUE BUNDLE
+                      else if (jsonData.operation && jsonData.issues) {
+                          markdownContent = formatIssueBundleToMarkdown(jsonData);
+                      }
+
+                      if (markdownContent) {
+                          setContentText(markdownContent);
+                          setShowContent(true);
+                      }
+                  } catch (e) {
+                      console.error("Failed to parse proposal JSON from final message", e);
+                  }
+              }
+              
               if (parsed.interruptions && parsed.interruptions.length > 0) {
                 setApprovalRequest({
                   interruptions: parsed.interruptions,
                   state: parsed.state,
                 });
+              }
+              if (parsed.history) {
+                setHistory(parsed.history);
               }
               if (parsed.finalAgent) {
                 currentAgent = parsed.finalAgent;
@@ -224,7 +311,7 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
               if (onDebugLog) {
                 onDebugLog({
                   type: 'assistant_response',
-                  content: parsed.finalOutput || currentMessage,
+                  content: finalMessage,
                   timestamp: new Date(),
                 });
               }
@@ -276,6 +363,7 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: input,
+          history: history,
           githubToken: session?.accessToken,
           selectedAgent,
         }),
@@ -472,13 +560,15 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
             <div className="flex-1 min-h-0">
               <ScrollArea className="h-full minimal-scrollbar">
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <div className="space-y-4 text-sm text-black/80 dark:text-white/80">
-                    {contentText || (
-                      <p className="italic opacity-50">
-                        Task breakdown will appear here as you discuss with the AI...
-                      </p>
-                    )}
-                  </div>
+                  {contentText ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {contentText}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="italic opacity-50">
+                      Task breakdown will appear here as you discuss with the AI...
+                    </p>
+                  )}
                 </div>
               </ScrollArea>
             </div>

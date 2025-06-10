@@ -32,6 +32,29 @@ export const commitToFolder = tool<typeof params>({
 
   /** Actual business logic */
   execute: async (args: Args, ctx) => {
+    console.log('🔧 GitHub Tool: commitToFolder called');
+    console.log('🌍 Environment check:');
+    console.log('   NODE_ENV:', process.env.NODE_ENV);
+    console.log('   VERCEL_ENV:', process.env.VERCEL_ENV);
+    console.log('   Is development?', process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV === 'development');
+    
+    // If not in production, bypass the GitHub sync
+    if (process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV === 'development') {
+      console.log('⏭️  Skipping GitHub commit in local development environment.');
+      console.log('📁 Files that would have been committed:', args.files.length);
+      args.files.forEach(file => {
+        console.log('   - ', file.path);
+      });
+      return {
+        success: true,
+        message: 'Skipped GitHub commit in local development environment. Files were synced locally only.',
+        filesModified: args.files.length,
+        skipped: true,
+      };
+    }
+
+    console.log('🚀 Proceeding with GitHub commit in production environment');
+
     const {
       owner,
       repo,

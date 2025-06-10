@@ -81,57 +81,58 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { message, state: serializedState, approvals, githubToken, selectedAgent } = body;
+    const { message, history: previousHistory, state: serializedState, approvals, githubToken, selectedAgent: selectedAgentName } = body;
     
     // Select appropriate agent
-    let agent;
+    let agent: Agent;
     
-    if (serializedState) {
-      // If we have state, use the same agent type that was used before
-      agent = await createLinearProjectPlannerAgent();
-    } else if (selectedAgent) {
-      // Use the explicitly selected agent
-      switch (selectedAgent) {
-        case 'project-planner':
-          agent = await createLinearProjectPlannerAgent();
-          break;
-        case 'issue-planner':
-          agent = await createLinearIssuePlannerAgent();
-          break;
-        case 'linear-project-planner':
-          agent = await createLinearProjectPlannerAgent();
-          break;
-        case 'linear-issue-planner':
-          agent = await createLinearIssuePlannerAgent();
-          break;
-        default:
-          agent = await createLinearProjectPlannerAgent();
-      }
-    } else {
-      // Fall back to automatic selection based on message content
-      agent = await selectAgent(message);
+    // Use the explicitly selected agent if provided, otherwise select based on message
+    switch (selectedAgentName) {
+      case 'project-planner':
+        agent = await createLinearProjectPlannerAgent();
+        break;
+      case 'issue-planner':
+        agent = await createLinearIssuePlannerAgent();
+        break;
+      case 'linear-project-planner':
+        agent = await createLinearProjectPlannerAgent();
+        break;
+      case 'linear-issue-planner':
+        agent = await createLinearIssuePlannerAgent();
+        break;
+      case 'code-writer':
+        agent = await createCodeWriterAgent();
+        break;
+      default:
+        // Fall back to automatic selection if no/invalid agent is specified
+        agent = await selectAgent(message);
+        break;
     }
     
     // Create context with GitHub token if available
     const context = githubToken ? { github_token: githubToken } : undefined;
     
-    // Handle state restoration and approvals if provided
-    let runInput: string | Awaited<ReturnType<typeof RunState.fromString>> = message;
-    if (serializedState) {
+    let runInput: any;
+
+    // If serializedState and approvals are present, we are continuing an interrupted run.
+    if (serializedState && approvals) {
       const state = await RunState.fromString(agent, serializedState);
       
-      // Apply approvals/rejections if provided
-      if (approvals) {
-        for (const approval of approvals) {
-          if (approval.approved) {
-            state.approve(approval.interruption);
-          } else {
-            state.reject(approval.interruption);
-          }
+      for (const approval of approvals) {
+        if (approval.approved) {
+          state.approve(approval.interruption);
+        } else {
+          state.reject(approval.interruption);
         }
       }
-      
       runInput = state;
+    } else {
+      // For a standard conversational turn, build on the history.
+      const history = previousHistory || [];
+      if (message) {
+        history.push({ role: 'user', content: message });
+      }
+      runInput = history;
     }
     
     // Run the agent with streaming and context
@@ -187,12 +188,15 @@ export async function POST(request: NextRequest) {
           // Wait for completion
           await result.completed;
           
-          // Send final result with any interruptions
+          // Send final result with any interruptions and the full history
           const finalData = {
             type: 'complete',
             finalOutput: result.finalOutput,
             interruptions: result.interruptions,
-            state: result.state ? JSON.stringify(result.state) : null,
+            // Only send state if the run was actually interrupted
+            state: result.interruptions.length > 0 ? JSON.stringify(result.state) : null,
+            // Always send the full history for the client to manage
+            history: result.history,
             finalAgent: agent.name,
           };
           

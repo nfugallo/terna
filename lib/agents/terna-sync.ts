@@ -77,10 +77,13 @@ export class TernaSync {
    * Create or update a project in the terna folder
    */
   async syncProject(project: LinearProject, milestones?: LinearMilestone[]): Promise<string> {
+    console.log('📂 TernaSync: Creating project folder structure for:', project.name);
     await this.ensureTernaStructure();
 
     const projectFolderName = this.sanitizeFolderName(project.name);
     const projectPath = path.join(this.ternaPath, 'projects', projectFolderName);
+    
+    console.log('📁 TernaSync: Project path:', projectPath);
     
     // Create project directory
     await fs.mkdir(projectPath, { recursive: true });
@@ -100,6 +103,7 @@ export class TernaSync {
 
     // Add milestones if provided
     if (milestones && milestones.length > 0) {
+      console.log('📋 TernaSync: Adding', milestones.length, 'milestones');
       projectData.milestones = milestones.map(m => ({
         name: m.name,
         description: m.description || '',
@@ -131,7 +135,9 @@ export class TernaSync {
     }
 
     // Write project.md
-    await fs.writeFile(path.join(projectPath, 'project.md'), content);
+    const projectFilePath = path.join(projectPath, 'project.md');
+    await fs.writeFile(projectFilePath, content);
+    console.log('✅ TernaSync: Project file written to:', projectFilePath);
 
     return projectPath;
   }
@@ -140,6 +146,9 @@ export class TernaSync {
    * Create or update an issue in the terna folder
    */
   async syncIssue(issue: LinearIssue, projectFolderName: string, parentIssueFolder?: string): Promise<string> {
+    console.log('📝 TernaSync: Creating issue structure for:', issue.identifier, '-', issue.title);
+    console.log('📁 TernaSync: Project folder:', projectFolderName, 'Parent folder:', parentIssueFolder || 'none');
+    
     const projectPath = path.join(this.ternaPath, 'projects', projectFolderName);
     
     // Determine issue path
@@ -147,9 +156,11 @@ export class TernaSync {
     if (parentIssueFolder) {
       // This is a sub-issue
       issuePath = path.join(projectPath, 'issues', parentIssueFolder, 'sub-issues');
+      console.log('📂 TernaSync: Creating sub-issue in:', issuePath);
     } else {
       // This is a main issue
       issuePath = path.join(projectPath, 'issues');
+      console.log('📂 TernaSync: Creating main issue in:', issuePath);
     }
 
     // Create issue folder name
@@ -162,6 +173,7 @@ export class TernaSync {
       // Only create sub-issues and attempts folders for main issues
       await fs.mkdir(path.join(issueFullPath, 'sub-issues'), { recursive: true });
       await fs.mkdir(path.join(issueFullPath, 'attempts'), { recursive: true });
+      console.log('📁 TernaSync: Created sub-folders for main issue');
     }
 
     // Prepare issue data, avoiding undefined values for YAML serialization
@@ -219,7 +231,9 @@ export class TernaSync {
     const content = matter.stringify(mainContent, issueData);
 
     // Write issue.md
-    await fs.writeFile(path.join(issueFullPath, 'issue.md'), content);
+    const issueFilePath = path.join(issueFullPath, 'issue.md');
+    await fs.writeFile(issueFilePath, content);
+    console.log('✅ TernaSync: Issue file written to:', issueFilePath);
 
     return issueFolderName;
   }
