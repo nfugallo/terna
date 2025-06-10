@@ -1,5 +1,5 @@
 import { LinearAPI } from './linear-client';
-import { ternaSync, TernaProjectData, TernaIssueData } from './terna-sync';
+import { TernaSync, ternaSync, TernaProjectData, TernaIssueData } from './terna-sync';
 import { Octokit } from '@octokit/rest';
 import matter from 'gray-matter';
 
