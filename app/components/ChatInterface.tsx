@@ -6,6 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronRight, ChevronLeft, Send } from "lucide-react";
+import { GitHubIntegration } from "./GitHubIntegration";
+import { useSession } from "next-auth/react";
 
 interface Message {
   id: string;
@@ -27,18 +29,19 @@ interface ApprovalRequest {
 
 interface ChatInterfaceProps {
   showDebugPanel?: boolean;
-  onDebugLog?: (log: any) => void;
+  onDebugLog?: (log: { type: string; content: unknown; timestamp: Date }) => void;
 }
 
-export default function ChatInterface({ showDebugPanel = false, onDebugLog }: ChatInterfaceProps) {
+export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [selectedModel, setSelectedModel] = useState<"gpt-4" | "claude-3.5">("gpt-4");
+  const [selectedAgent, setSelectedAgent] = useState<"project-planner" | "issue-planner">("project-planner");
   const [showContent, setShowContent] = useState(false);
   const [contentText, setContentText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { data: session } = useSession();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -62,6 +65,8 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
           message: '',
           state: approvalRequest.state,
           approvals,
+          githubToken: session?.accessToken,
+          selectedAgent,
         }),
       });
 
@@ -82,37 +87,113 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
   };
 
   const handleStreamResponse = async (response: Response) => {
+    // Check if response is JSON (error response)
+    const contentType = response.headers.get('content-type');
+    console.log('Response content-type:', contentType);
+    
+    if (contentType && contentType.includes('application/json')) {
+      const errorData = await response.json();
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `Error: ${errorData.error}\n\n${errorData.details || ''}`,
+        timestamp: new Date(),
+      }]);
+      return;
+    }
+
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
     let currentMessage = '';
-    let messageId = Date.now().toString();
+    const messageId = Date.now().toString();
     let currentAgent = 'Assistant';
 
-    if (!reader) return;
+    if (!reader) {
+      console.error('No reader available');
+      return;
+    }
+
+    console.log('Starting to read stream...');
+    let chunkCount = 0;
+    let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        console.log('Stream complete');
+        break;
+      }
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      const chunk = decoder.decode(value, { stream: true });
+      chunkCount++;
+      console.log(`Chunk ${chunkCount}:`, chunk);
+      
+      // Add chunk to buffer
+      buffer += chunk;
+      
+      // Process complete lines
+      const lines = buffer.split('\n');
+      // Keep the last line in the buffer if it's incomplete
+      buffer = lines.pop() || '';
 
       for (const line of lines) {
+        if (line.trim() === '') continue;
+        
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data === '[DONE]') continue;
+          if (data === '[DONE]') {
+            console.log('Received [DONE] signal');
+            continue;
+          }
 
           try {
             const parsed = JSON.parse(data);
+            console.log('Parsed event:', parsed.type, parsed);
 
-            if (parsed.type === 'text') {
+            // Handle different event types
+            if (parsed.type === 'agent_info') {
+              currentAgent = parsed.agent;
+              if (onDebugLog) {
+                onDebugLog({
+                  type: 'agent_selected',
+                  content: parsed.agent,
+                  timestamp: new Date(),
+                });
+              }
+            } else if (parsed.type === 'debug_event' && onDebugLog) {
+              onDebugLog({
+                type: 'thinking',
+                content: parsed.data,
+                timestamp: new Date(),
+              });
+            } else if (parsed.type === 'tool_call' && onDebugLog) {
+              onDebugLog({
+                type: 'tool_call',
+                content: {
+                  tool: parsed.tool,
+                  arguments: parsed.arguments,
+                },
+                timestamp: new Date(),
+              });
+            } else if (parsed.type === 'tool_result' && onDebugLog) {
+              onDebugLog({
+                type: 'tool_result',
+                content: parsed.output,
+                timestamp: new Date(),
+              });
+            } else if (parsed.type === 'text') {
               currentMessage += parsed.content;
               setMessages(prev => {
                 const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
+                const lastMessageIndex = newMessages.length - 1;
+                const lastMessage = newMessages[lastMessageIndex];
                 
                 if (lastMessage && lastMessage.id === messageId) {
-                  lastMessage.content = currentMessage;
+                  // Create a new message object instead of mutating the existing one
+                  newMessages[lastMessageIndex] = {
+                    ...lastMessage,
+                    content: currentMessage
+                  };
                 } else {
                   newMessages.push({
                     id: messageId,
@@ -140,9 +221,24 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
               if (parsed.finalAgent) {
                 currentAgent = parsed.finalAgent;
               }
+              
+              if (onDebugLog) {
+                onDebugLog({
+                  type: 'assistant_response',
+                  content: parsed.finalOutput || currentMessage,
+                  timestamp: new Date(),
+                });
+              }
             }
           } catch (e) {
             console.error('Error parsing SSE data:', e);
+            if (onDebugLog) {
+              onDebugLog({
+                type: 'error',
+                content: { error: e, data: data },
+                timestamp: new Date(),
+              });
+            }
           }
         }
       }
@@ -151,6 +247,8 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+
+    console.log('Sending message:', input);
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -167,28 +265,43 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
     if (onDebugLog) {
       onDebugLog({
         type: "user_message",
-        content: input,
-        model: selectedModel,
+        content: {
+          content: input,
+          agent: selectedAgent,
+        },
         timestamp: new Date(),
       });
     }
 
     try {
+      console.log('Fetching from /api/agents...');
       const response = await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input }),
+        body: JSON.stringify({ 
+          message: input,
+          githubToken: session?.accessToken,
+          selectedAgent,
+        }),
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API Error:', errorData);
+        throw new Error(errorData.details || errorData.error || 'Failed to send message');
+      }
 
       await handleStreamResponse(response);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error sending message:', error);
+      const errorObj = error as Error;
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: errorObj.message || 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
       }]);
     } finally {
@@ -204,30 +317,34 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
           showContent ? "mr-96" : ""
         }`}
       >
-        {/* Model Selection */}
-        <div className="flex justify-center gap-2 p-4">
-          <Badge
-            variant={selectedModel === "gpt-4" ? "default" : "outline"}
-            className={`cursor-pointer px-4 py-2 ${
-              selectedModel === "gpt-4"
-                ? "bg-black text-white dark:bg-white dark:text-black"
-                : "bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 hover:bg-opacity-20 transition-all"
-            }`}
-            onClick={() => setSelectedModel("gpt-4")}
-          >
-            GPT-4
-          </Badge>
-          <Badge
-            variant={selectedModel === "claude-3.5" ? "default" : "outline"}
-            className={`cursor-pointer px-4 py-2 ${
-              selectedModel === "claude-3.5"
-                ? "bg-black text-white dark:bg-white dark:text-black"
-                : "bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 hover:bg-opacity-20 transition-all"
-            }`}
-            onClick={() => setSelectedModel("claude-3.5")}
-          >
-            Claude 3.5
-          </Badge>
+        {/* Agent Selection and GitHub Integration */}
+        <div className="flex justify-between items-center p-4">
+          <div className="flex gap-2">
+            <Badge
+              variant={selectedAgent === "project-planner" ? "default" : "outline"}
+              className={`cursor-pointer px-4 py-2 transition-all ${
+                selectedAgent === "project-planner"
+                  ? "bg-black text-white dark:bg-white dark:text-black"
+                  : "bg-white/10 dark:bg-white/5 backdrop-blur-md border-white/20 hover:bg-white/20 dark:hover:bg-white/10"
+              }`}
+              onClick={() => setSelectedAgent("project-planner")}
+            >
+              Project Planner
+            </Badge>
+            <Badge
+              variant={selectedAgent === "issue-planner" ? "default" : "outline"}
+              className={`cursor-pointer px-4 py-2 transition-all ${
+                selectedAgent === "issue-planner"
+                  ? "bg-black text-white dark:bg-white dark:text-black"
+                  : "bg-white/10 dark:bg-white/5 backdrop-blur-md border-white/20 hover:bg-white/20 dark:hover:bg-white/10"
+              }`}
+              onClick={() => setSelectedAgent("issue-planner")}
+            >
+              Issue Planner
+            </Badge>
+          </div>
+          
+          <GitHubIntegration onTokenUpdate={() => {}} />
         </div>
 
         {/* Messages */}
@@ -241,10 +358,10 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
                 }`}
               >
                 <div
-                  className={`p-4 max-w-[80%] rounded-lg shadow-lg border border-white/10 ${
+                  className={`p-4 max-w-[80%] rounded-lg backdrop-blur-md ${
                     message.role === "user"
-                      ? "bg-white bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10"
-                      : "bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10"
+                      ? "bg-black/80 text-white dark:bg-white/80 dark:text-black"
+                      : "bg-white/80 text-black dark:bg-black/80 dark:text-white"
                   }`}
                 >
                   {message.agent && message.role === "assistant" && (
@@ -259,27 +376,27 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
             ))}
             
             {approvalRequest && (
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 shadow-lg">
-                <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Approval Required</h3>
+              <div className="bg-white/80 dark:bg-black/80 backdrop-blur-md border border-black/20 dark:border-white/20 rounded-lg p-4">
+                <h3 className="font-semibold mb-2">Approval Required</h3>
                 {approvalRequest.interruptions.map((interruption, index) => (
                   <div key={index} className="mb-3">
-                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                    <p className="text-sm">
                       <span className="font-medium">{interruption.agent.name}</span> wants to use{' '}
-                      <span className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">{interruption.rawItem.name}</span>
+                      <span className="font-mono bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.name}</span>
                     </p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                      Arguments: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{interruption.rawItem.arguments}</code>
+                    <p className="text-xs opacity-70 mt-1">
+                      Arguments: <code className="bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.arguments}</code>
                     </p>
                     <div className="mt-2 space-x-2">
                       <button
                         onClick={() => handleApproval([{ interruption, approved: true }])}
-                        className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 transition-colors"
+                        className="px-3 py-1 bg-black text-white dark:bg-white dark:text-black rounded text-sm hover:opacity-80 transition-opacity"
                       >
                         Approve
                       </button>
                       <button
                         onClick={() => handleApproval([{ interruption, approved: false }])}
-                        className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600 transition-colors"
+                        className="px-3 py-1 bg-white text-black dark:bg-black dark:text-white border border-black dark:border-white rounded text-sm hover:opacity-80 transition-opacity"
                       >
                         Reject
                       </button>
@@ -291,11 +408,11 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
             
             {isLoading && (
               <div className="flex justify-start">
-                <div className="p-4 rounded-lg shadow-lg bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 border border-white/10">
+                <div className="p-4 rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md">
                   <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-100" />
-                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-200" />
+                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-100" />
+                    <div className="w-2 h-2 bg-black dark:bg-white rounded-full animate-bounce delay-200" />
                   </div>
                 </div>
               </div>
@@ -305,7 +422,7 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
         </ScrollArea>
 
         {/* Input Area */}
-        <div className="p-4 border-t border-white/10">
+        <div className="p-4 border-t border-black/10 dark:border-white/10">
           <div className="max-w-3xl mx-auto flex gap-2">
             <Textarea
               value={input}
@@ -317,14 +434,14 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
                 }
               }}
               placeholder="Describe your task..."
-              className="resize-none bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 border border-white/10 rounded-md px-3 py-2 focus:ring-2 focus:ring-white/20"
+              className="resize-none bg-white/80 dark:bg-black/80 backdrop-blur-md border-black/20 dark:border-white/20 text-black dark:text-white placeholder:text-black/50 dark:placeholder:text-white/50 focus:ring-2 focus:ring-black/20 dark:focus:ring-white/20"
               rows={3}
               disabled={isLoading || !!approvalRequest}
             />
             <Button
               onClick={handleSend}
               disabled={!input.trim() || isLoading || !!approvalRequest}
-              className="self-end bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 hover:bg-opacity-20 border border-white/10"
+              className="self-end bg-black text-white dark:bg-white dark:text-black hover:opacity-80 transition-opacity"
               size="icon"
             >
               <Send className="h-4 w-4" />
@@ -336,32 +453,34 @@ export default function ChatInterface({ showDebugPanel = false, onDebugLog }: Ch
       {/* Toggle Content Button */}
       <Button
         onClick={() => setShowContent(!showContent)}
-        className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 hover:bg-opacity-20 border border-white/10"
+        className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md hover:opacity-80 transition-opacity border-black/20 dark:border-white/20"
         size="icon"
         variant="ghost"
       >
         {showContent ? (
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4 text-black dark:text-white" />
         ) : (
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4 text-black dark:text-white" />
         )}
       </Button>
 
       {/* Content Panel */}
       {showContent && (
-        <div className="absolute right-0 top-0 h-full w-96 m-4 p-6 overflow-hidden rounded-lg shadow-lg bg-gray-500 bg-clip-padding backdrop-filter backdrop-blur bg-opacity-10 border border-white/10">
-          <ScrollArea className="h-full minimal-scrollbar">
-            <div className="prose prose-invert max-w-none">
-              <h3 className="text-lg font-medium mb-4">Task Breakdown</h3>
-              <div className="space-y-4 text-sm opacity-80">
-                {contentText || (
-                  <p className="italic opacity-50">
-                    Task breakdown will appear here as you discuss with the AI...
-                  </p>
-                )}
+        <div className="absolute right-0 top-0 h-full w-96 p-4">
+          <div className="h-full p-6 overflow-hidden rounded-lg bg-white/80 dark:bg-black/80 backdrop-blur-md">
+            <ScrollArea className="h-full minimal-scrollbar">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <h3 className="text-lg font-medium mb-4 text-black dark:text-white">Task Breakdown</h3>
+                <div className="space-y-4 text-sm text-black/80 dark:text-white/80">
+                  {contentText || (
+                    <p className="italic opacity-50">
+                      Task breakdown will appear here as you discuss with the AI...
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
         </div>
       )}
     </div>

@@ -2,6 +2,8 @@ import { Agent, tool } from '@openai/agents';
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
+import { commitToFolder } from './github-tool';
+import { getLinearToolsForAgent } from './linear-tools';
 
 // Read system prompts from markdown files
 async function loadSystemPrompt(filename: string): Promise<string> {
@@ -65,7 +67,7 @@ export async function createProjectPlannerAgent() {
   return new Agent({
     name: 'Project Planner',
     instructions,
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1',
     tools: [createProjectTool, searchTool],
   });
 }
@@ -76,24 +78,57 @@ export async function createIssuePlannerAgent() {
   return new Agent({
     name: 'Issue Planner',
     instructions,
-    model: 'gpt-4o-mini',
+    model: 'gpt-4.1',
     tools: [createIssueTool, searchTool],
   });
 }
 
-// Create a triage agent that can hand off to specialized agents
-export async function createTriageAgent() {
-  const projectPlanner = await createProjectPlannerAgent();
-  const issuePlanner = await createIssuePlannerAgent();
+export async function createCodeWriterAgent() {
+  const instructions = `You are a Code Writer agent that helps users generate and commit code to GitHub repositories.
+
+When the user asks you to generate or update code:
+1. Use the commit_to_folder tool to write files to the specified allowed folder
+2. Always respect the folder boundaries - only write to the allowed folder
+3. Create well-structured, clean code following best practices
+4. Include appropriate comments and documentation
+5. Suggest meaningful PR titles and descriptions
+
+Important security notes:
+- You can ONLY write files within the allowed folder specified by the user
+- All commits require user approval before being pushed
+- Changes are made via pull requests, not direct commits to main
+
+If the user hasn't connected their GitHub account yet, inform them they need to do so first.`;
   
-  return Agent.create({
-    name: 'Triage Agent',
-    instructions: `You are a triage agent that helps users by directing them to the appropriate specialized agent.
-    
-    - If the user wants to plan a project, create project structure, or discuss architecture, hand off to the Project Planner.
-    - If the user wants to create issues, manage tasks, or organize work items, hand off to the Issue Planner.
-    - Always be helpful and clarify the user's needs if unclear.`,
-    model: 'gpt-4o-mini',
-    handoffs: [projectPlanner, issuePlanner],
+  return new Agent({
+    name: 'Code Writer',
+    instructions,
+    model: 'gpt-4.1',
+    tools: [commitToFolder, searchTool],
+  });
+}
+
+// Linear-specific agents
+export async function createLinearProjectPlannerAgent() {
+  const instructions = await loadSystemPrompt('project-planner.md');
+  const linearTools = getLinearToolsForAgent('project_planner');
+  
+  return new Agent({
+    name: 'Linear Project Planner',
+    instructions: instructions + '\n\nYou have access to Linear tools to create and manage projects in Linear. Always use these tools when working with Linear projects.',
+    model: 'gpt-4.1',
+    tools: linearTools,
+  });
+}
+
+export async function createLinearIssuePlannerAgent() {
+  const instructions = await loadSystemPrompt('issue-planner.md');
+  const linearTools = getLinearToolsForAgent('issue_planner');
+  
+  return new Agent({
+    name: 'Linear Issue Planner',
+    instructions: instructions + '\n\nYou have access to Linear tools to create and manage issues in Linear. Always use these tools when working with Linear issues.',
+    model: 'gpt-4.1',
+    tools: linearTools,
   });
 } 
