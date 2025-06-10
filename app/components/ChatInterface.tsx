@@ -51,6 +51,14 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
     scrollToBottom();
   }, [messages]);
 
+  const prettyPrintArgs = (args: string) => {
+    try {
+      return JSON.stringify(JSON.parse(args), null, 2);
+    } catch (e) {
+      return args;
+    }
+  };
+
   const handleApproval = async (approvals: { interruption: Interruption; approved: boolean }[]) => {
     if (!approvalRequest) return;
 
@@ -152,6 +160,11 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
                   timestamp: new Date(),
                 });
               }
+            } else if (parsed.type === 'human_in_the_loop') {
+              setApprovalRequest({
+                interruptions: parsed.interruptions,
+                state: parsed.state,
+              });
             } else if (parsed.type === 'tool_call' && onDebugLog) {
               onDebugLog({
                 type: 'tool_call',
@@ -365,9 +378,14 @@ export default function ChatInterface({ onDebugLog }: ChatInterfaceProps) {
                         <span className="font-medium">{interruption.agent.name}</span> wants to use{' '}
                         <span className="font-mono bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.name}</span>
                       </p>
-                      <p className="text-xs opacity-70 mt-1">
-                        Arguments: <code className="bg-black/10 dark:bg-white/10 px-1 rounded">{interruption.rawItem.arguments}</code>
-                      </p>
+                      <div className="text-xs opacity-70 mt-1">
+                        Arguments:
+                        <pre className="text-black dark:text-white text-xs bg-black/10 dark:bg-white/10 p-2 rounded mt-1 whitespace-pre-wrap break-words">
+                          <code>
+                            {prettyPrintArgs(interruption.rawItem.arguments)}
+                          </code>
+                        </pre>
+                      </div>
                       <div className="mt-2 space-x-2">
                         <button
                           onClick={() => handleApproval([{ interruption, approved: true }])}

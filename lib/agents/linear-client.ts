@@ -187,7 +187,7 @@ export class LinearAPI {
         content: project.content || '',
         state: project.state,
         progress: project.progress,
-        targetDate: project.targetDate?.toISOString(),
+        targetDate: project.targetDate ? (typeof project.targetDate === 'string' ? project.targetDate : project.targetDate.toISOString()) : undefined,
         url: `https://linear.app/simpl/project/${project.id}`,
       };
 

@@ -257,15 +257,12 @@ cd /Users/nfugallo/terna  # Or wherever the main code is
 
 # 6. Update attempt file with results
 # 7. Set final status in attempt file
-```
-
----
+# 8. Run the Linear sync script
+python scripts/sync_to_linear.py "issue-011-protect-routes"
 
 ## 🔗 Integration Notes
-
-- The `/terna` folder is your task management system
-- The main codebase (outside `/terna`) is where you implement changes
 - Attempt files are your work diary - treat them as mandatory
 - Status changes in attempt files can trigger external syncs (e.g., to Linear)
+- **The Linear sync script MUST be run after every successful task completion.**
 
-Remember: You're not just coding, you're participating in a structured workflow that tracks and documents every action. Follow this guide precisely for successful task execution.
+Remember: You're not just coding, you're participating in a structured workflow that tracks and documents every action. Follow this guide precisely for successful task execution. 

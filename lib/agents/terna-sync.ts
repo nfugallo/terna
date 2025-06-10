@@ -164,52 +164,59 @@ export class TernaSync {
       await fs.mkdir(path.join(issueFullPath, 'attempts'), { recursive: true });
     }
 
-    // Prepare issue data
-    const issueData: TernaIssueData = {
+    // Prepare issue data, avoiding undefined values for YAML serialization
+    const issueData: Partial<TernaIssueData> = {
       id: issue.id,
       identifier: issue.identifier,
       title: issue.title,
       status: issue.state.name.toLowerCase().replace(/\s+/g, '-'),
-      assignee: issue.assignee?.name,
       priority: this.getPriorityString(issue.priority),
       parent: parentIssueFolder || null,
       linear_url: issue.url,
-      estimate: issue.estimate,
       labels: issue.labels.map(l => l.name),
-      description: issue.description,
     };
+    if (issue.assignee) {
+      issueData.assignee = issue.assignee.name;
+    }
+    if (issue.estimate !== undefined && issue.estimate !== null) {
+      issueData.estimate = issue.estimate;
+    }
+    if (issue.description !== undefined && issue.description !== null) {
+      issueData.description = issue.description;
+    }
 
-    // Create issue.md content
-    let content = matter.stringify('', issueData);
-    content += `# ${issue.title}\n\n`;
-    
+    // Prepare main content for the markdown file
+    let mainContent = `# ${issue.title}\n\n`;
     if (issue.description) {
-      content += `${issue.description}\n\n`;
+      mainContent += `${issue.description}\n\n`;
     }
 
     // Add requirements section if there's description
     if (issue.description) {
-      content += `## Requirements\n`;
+      mainContent += `## Requirements\n`;
       // Parse description for bullet points or create them
       const lines = issue.description.split('\n').filter(line => line.trim());
       lines.forEach(line => {
         if (line.trim().startsWith('-') || line.trim().startsWith('*')) {
-          content += `${line}\n`;
+          mainContent += `${line}\n`;
         } else if (line.trim()) {
-          content += `- ${line}\n`;
+          mainContent += `- ${line}\n`;
         }
       });
-      content += '\n';
+      mainContent += '\n';
     }
 
     // Add Definition of Done section
-    content += `## Definition of Done\n`;
-    content += `- [ ] Implementation complete\n`;
-    content += `- [ ] Tests written and passing\n`;
-    content += `- [ ] Code reviewed\n`;
+    mainContent += `## Definition of Done\n`;
+    mainContent += `- [ ] Implementation complete\n`;
+    mainContent += `- [ ] Tests written and passing\n`;
+    mainContent += `- [ ] Code reviewed\n`;
     if (issue.labels.some(l => l.name.toLowerCase().includes('doc'))) {
-      content += `- [ ] Documentation updated\n`;
+      mainContent += `- [ ] Documentation updated\n`;
     }
+
+    // Create issue.md content with frontmatter
+    const content = matter.stringify(mainContent, issueData);
 
     // Write issue.md
     await fs.writeFile(path.join(issueFullPath, 'issue.md'), content);
