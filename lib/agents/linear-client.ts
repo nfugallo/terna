@@ -1,11 +1,35 @@
 import { LinearClient } from '@linear/sdk';
 
-// Initialize the Linear client with the API key
-const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
+// Lazy initialization of the Linear client
+let _linearClient: LinearClient | null = null;
 
-export const linearClient = new LinearClient({
-  apiKey: LINEAR_API_KEY,
-});
+function getLinearClient(): LinearClient {
+  if (!_linearClient) {
+    const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
+    if (!LINEAR_API_KEY) {
+      throw new Error('LINEAR_API_KEY environment variable is not set');
+    }
+    _linearClient = new LinearClient({
+      apiKey: LINEAR_API_KEY,
+    });
+  }
+  return _linearClient;
+}
+
+export const linearClient = {
+  get teams() { return getLinearClient().teams; },
+  get projects() { return getLinearClient().projects; },
+  get issues() { return getLinearClient().issues; },
+  get project() { return getLinearClient().project.bind(getLinearClient()); },
+  get createProject() { return getLinearClient().createProject.bind(getLinearClient()); },
+  get createProjectMilestone() { return getLinearClient().createProjectMilestone.bind(getLinearClient()); },
+  get issue() { return getLinearClient().issue.bind(getLinearClient()); },
+  get createIssue() { return getLinearClient().createIssue.bind(getLinearClient()); },
+  get team() { return getLinearClient().team.bind(getLinearClient()); },
+  get updateProject() { return getLinearClient().updateProject.bind(getLinearClient()); },
+  get updateIssue() { return getLinearClient().updateIssue.bind(getLinearClient()); },
+  get viewer() { return getLinearClient().viewer; },
+};
 
 export interface LinearTeam {
   id: string;
@@ -270,7 +294,7 @@ export class LinearAPI {
         },
       });
       
-      return Promise.all(issues.nodes.map(async (issue) => {
+      return Promise.all(issues.nodes.map(async (issue: any) => {
         const team = await issue.team;
         const state = await issue.state;
         const assignee = await issue.assignee;
@@ -320,7 +344,7 @@ export class LinearAPI {
 
       const subIssues = await parentIssue.children();
       
-      return Promise.all(subIssues.nodes.map(async (issue) => {
+      return Promise.all(subIssues.nodes.map(async (issue: any) => {
         const team = await issue.team;
         const state = await issue.state;
         const assignee = await issue.assignee;
@@ -650,7 +674,7 @@ export class LinearAPI {
         (issue.description && issue.description.toLowerCase().includes(query.toLowerCase()))
       );
 
-      return Promise.all(filteredIssues.map(async (issue) => {
+      return Promise.all(filteredIssues.map(async (issue: any) => {
         const team = await issue.team;
         const state = await issue.state;
         const assignee = await issue.assignee;
@@ -668,7 +692,7 @@ export class LinearAPI {
           },
           priority: issue.priority,
           estimate: issue.estimate,
-          labels: labels?.nodes.map(label => ({
+          labels: labels?.nodes.map((label: any) => ({
             id: label.id,
             name: label.name,
           })) || [],
